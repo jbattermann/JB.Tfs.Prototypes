@@ -1,5 +1,10 @@
-﻿using System.Reflection;
-using System.Runtime.CompilerServices;
+﻿// <copyright file="AssemblyInfo.cs" company="Joerg Battermann">
+//     (c) 2012 Joerg Battermann.
+//     License: see https://github.com/jbattermann/JB.Tfs.Prototypes/blob/master/LICENSE
+// </copyright>
+// <author>Joerg Battermann</author>
+
+using System.Reflection;
 using System.Runtime.InteropServices;
 
 // General Information about an assembly is controlled through the following 
