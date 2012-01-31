@@ -43,7 +43,7 @@ namespace JB.Tfs.Prototypes.TestResultCoverage
         public static void CheckTestCoverage(
             [Parameter(Aliases = "tpc", Description = "The TeamProjectCollection Uri (e.g. 'http://tfsserver.local:8080/tfs/DefaultCollection') the workitem to check for is contained in")]
                 string tfsTeamProjectCollectionUri,
-            [Parameter(Aliases = "p", Description = "The Name of the Project (e.g. 'http://tfsserver.local:8080/tfs/DefaultCollection') of the TFS TeamProjectCollection the workitem to check is contained in")]
+            [Parameter(Aliases = "p", Description = "The Name of the Project (e.g. 'SomeProject') of the Project the workitem to check is contained in")]
                 string projectName,
             [MoreThan(0)][Parameter(Aliases = "wi", Description = "The WorkItem Id to check TestCoverage for")]
                 int workItemId)
