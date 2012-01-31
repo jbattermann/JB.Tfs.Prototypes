@@ -31,6 +31,9 @@ namespace JB.Tfs.Prototypes.TestResultCoverage
         private static WorkItem _sourceWorkItem;
         private static WorkItemLinkType _testedByworkItemLinkType;
 
+        private static IList<ITestCase> _testCases; 
+        private static IList<ITestConfiguration> _testConfigurations;
+
         private const string CategoryRequirement = "Microsoft.RequirementCategory";
         private const string CategoryTestCase = "Microsoft.TestCaseCategory";
         private const string CategoryBug = "Microsoft.BugCategory";
@@ -67,6 +70,9 @@ namespace JB.Tfs.Prototypes.TestResultCoverage
 
             if (_sourceWorkItem == null)
                 throw new ArgumentOutOfRangeException("workItemId", "A Work Item with this Id does not exist in the given Project");
+
+            _testConfigurations = _testManagementTeamProject.TestConfigurations.Query(
+                "Select * from TestConfiguration").ToList();
 
             // all set, now prepare rest of necessary data
             _requirementCategory =
@@ -131,6 +137,8 @@ namespace JB.Tfs.Prototypes.TestResultCoverage
             if (testCaseIds.Count == 0)
                 throw new ArgumentOutOfRangeException("workItemId", string.Format("No TestCases are linked to the given Requirement with the id '{0}'.", workItemId));
 
+            _testCases = (_testManagementTeamProject.CreateTestQuery(testCaseIds.ToArray())).Execute().ToList();
+
             #region not pursuing this option for now
             //var abc = _testManagementTeamProject.TestResults.ByTestId(workItemId);
 
@@ -162,55 +170,88 @@ namespace JB.Tfs.Prototypes.TestResultCoverage
                 }
             }
 
-            var testPoints = new List<ITestPoint>();
-            foreach (var testPlan in activeTestPlans)
-            {
-                testPoints.AddRange(testPlan.QueryTestPoints(queryStringBuilder.ToString()));
-            }
+
+            var testPointsInTestPlans = activeTestPlans.ToDictionary(testPlan => testPlan, testPlan => testPlan.QueryTestPoints(queryStringBuilder.ToString()).ToList());
 
             // ToDo: Check for configurations and their individual runs
             // ToDo: Check all, not only the most recent results. This shall be an option, as some businesses require this
-            var notExecutedTestPoints = new List<ITestPoint>();
-            var failedTestPoints = new List<ITestPoint>();
-            var inconclusiveTestPoints = new List<ITestPoint>();
-            var warningTestPoints = new List<ITestPoint>();
-            var passedTestPoints = new List<ITestPoint>();
 
-            // put test points into their corresponding bins for final result evaluation
-            foreach (var testPoint in testPoints)
+            var testCasePerConfigurationsTestOutcomes = new Dictionary<ITestCase, Dictionary<ITestPlan, Dictionary<ITestConfiguration, TestOutcome>>>();
+
+            foreach (var testCase in _testCases)
             {
-                // check whether a test run has actual taken place, yet (or if it was just planned for now)
-                if (testPoint.MostRecentResult == null ||
-                    testPoint.MostRecentResult.Outcome == TestOutcome.NotExecuted ||
-                    testPoint.MostRecentResult.Outcome == TestOutcome.None)
+                var testCaseId = testCase.Id;
+                var perTestplanDictionary = testPointsInTestPlans.Where(
+                        valuePair => valuePair.Value.Any(testPoint => testPoint.TestCaseId == testCaseId)).ToDictionary(
+                        outterKeyValuePair => outterKeyValuePair.Key, outterKeyValuePair => outterKeyValuePair.Value.ToDictionary(
+                            innerKeyValuePair =>
+                                _testConfigurations.First(testConfiguration => testConfiguration.Id == innerKeyValuePair.ConfigurationId),
+                                innerKeyValuePair => innerKeyValuePair.MostRecentResultOutcome));
+
+                if (perTestplanDictionary.Count > 0)
+                    testCasePerConfigurationsTestOutcomes.Add(testCase, perTestplanDictionary);
+            }
+
+            Console.WriteLine("Done.");
+            Console.WriteLine("-------------------------------------------------");
+            Console.WriteLine("Starting point was the WorkItem '{0}' (Id: {1}) which had {2} Test Case(s) linked to it. The Evaluation of these is the following:", _sourceWorkItem.Title, _sourceWorkItem.Id, _testCases.Count);
+            foreach (var testCasePerConfigurationsTestOutcome in testCasePerConfigurationsTestOutcomes)
+            {
+                bool failed = false;
+                bool inconclusive = false;
+                Console.WriteLine();
+                Console.WriteLine("TestCase '{0}' (Id: {1}) is used in {2} active TestPlans.", testCasePerConfigurationsTestOutcome.Key.Title, testCasePerConfigurationsTestOutcome.Key.Id, testCasePerConfigurationsTestOutcome.Value.Count);
+                foreach (var casePerConfigurationsTestOutcome in testCasePerConfigurationsTestOutcome.Value)
                 {
-                    notExecutedTestPoints.Add(testPoint);
-                    continue;
+                    Console.WriteLine();
+                    Console.WriteLine("In Testplan '{0}' it was planned with {1} Test Configuration(s). Test Outcomes per Configuration:", casePerConfigurationsTestOutcome.Key.Name, casePerConfigurationsTestOutcome.Value.Count);
+                    foreach (var outcome in casePerConfigurationsTestOutcome.Value)
+                    {
+                        Console.WriteLine("- '{0}' (default: {1}): {2}", outcome.Key.Name, outcome.Key.IsDefault ? "yes" : "no", outcome.Value);
+                        switch (outcome.Value)
+                        {
+                            case TestOutcome.Warning:
+                            case TestOutcome.Inconclusive:
+                            case TestOutcome.NotExecuted:
+                            case TestOutcome.None:
+                                inconclusive = true;
+                                break;
+                            case TestOutcome.Aborted:
+                            case TestOutcome.Failed:
+                            case TestOutcome.Error:
+                            case TestOutcome.Blocked:
+                            case TestOutcome.Timeout:
+                                failed = true;
+                                break;
+                            case TestOutcome.Passed:
+                                break;
+                        }
+                    }
                 }
 
-                // check outcome
-                switch (testPoint.MostRecentResult.Outcome)
+                string finalResult;
+                ConsoleColor consoleColor;
+                if (failed)
                 {
-                    case TestOutcome.Inconclusive:
-                    // case TestOutcome.Unspecified: // this is only a temporary enum value set during value changes
-                        inconclusiveTestPoints.Add(testPoint);
-                        break;
-                    case TestOutcome.Aborted:
-                    case TestOutcome.Failed:
-                    case TestOutcome.Error:
-                    case TestOutcome.Blocked:
-                    case TestOutcome.Timeout:
-                        failedTestPoints.Add(testPoint);
-                        break;
-                    case TestOutcome.Warning:
-                        warningTestPoints.Add(testPoint);
-                        break;
-                    case TestOutcome.Passed:
-                        passedTestPoints.Add(testPoint);
-                        break;
+                    finalResult = "Failed";
+                    consoleColor = ConsoleColor.Red;
                 }
-
-                // do final round
+                else if (inconclusive)
+                {
+                    finalResult = "Inconclusive";
+                    consoleColor = ConsoleColor.Yellow;
+                }
+                else
+                {
+                    finalResult = "Passed";
+                    consoleColor = ConsoleColor.Green;
+                }
+                Console.WriteLine();
+                Console.Write("Therefore the overall Test Coverage and Test Results for Workitem '{0}' is: ", _sourceWorkItem.Title);
+                var oldColor = Console.ForegroundColor;
+                Console.ForegroundColor = consoleColor;
+                Console.Write(finalResult.ToUpper());
+                Console.ForegroundColor = oldColor;
             }
         }
 

@@ -25,6 +25,10 @@ namespace JB.Tfs.Prototypes.TestResultCoverage
             Console.WriteLine("-------------------------------------------------");
             Console.WriteLine("For the final product go to: http://tfs-extended.joergbattermann.com");
             Console.WriteLine();
+            Console.WriteLine("Press any key to continue.");
+            Console.ReadKey();
+            Console.Clear();
+            Console.WriteLine("Evaluating, please wait..");
             try
             {
                 Parser.Run<TestCoverageChecker>(args);
